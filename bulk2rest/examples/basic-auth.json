@@ -1,0 +1,27 @@
+{
+  "source": {
+    "delimiter": ",",
+    "hasHeader": true
+  },
+  "request": {
+    "url": "https://api.example.com/v1/folders/bulk",
+    "method": "PUT",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+  "auth": {
+    "type": "basic",
+    "userName": "PUT_LOGIN_HERE",
+    "password": "PUT_PASSWORD_HERE"
+  },
+  "grouping": {
+    "mode": "group",
+    "by": ["FolderId"],
+    "batchSize": 0
+  },
+  "bodyTemplate": {
+    "folderId": "{{group:FolderId}}",
+    "items": { "$each": { "as": { "sku": "{{row:Sku}}", "op": "{{row:Operation}}" } } }
+  }
+}

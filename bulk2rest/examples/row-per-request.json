@@ -1,0 +1,23 @@
+{
+  "source": {
+    "delimiter": ",",
+    "hasHeader": true
+  },
+  "request": {
+    "url": "https://api.example.com/v1/items",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Api-Key": "PUT_API_KEY_HERE"
+    }
+  },
+  "grouping": {
+    "mode": "row"
+  },
+  "bodyTemplate": {
+    "folderId": "{{row:FolderId}}",
+    "sku": "{{row:Sku}}",
+    "operation": "{{row:Operation}}",
+    "createdOn": "{{row:CreatedOn}}"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "source": {
+    "delimiter": ",",
+    "hasHeader": true
+  },
+  "request": {
+    "url": "https://api.example.com/v1/folders/bulk",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "userName": "PUT_LOGIN_HERE",
+    "password": "PUT_PASSWORD_HERE",
+    "token": {
+      "url": "https://api.example.com/v1/auth/login",
+      "body": { "login": "{{userName}}", "secret": "{{password}}" },
+      "from": "json",
+      "path": "data.accessToken",
+      "prefix": "Bearer ",
+      "retryOn401": true
+    }
+  },
+  "grouping": {
+    "mode": "group",
+    "by": ["FolderId"],
+    "batchSize": 50
+  },
+  "bodyTemplate": {
+    "folderId": "{{group:FolderId}}",
+    "add":    { "$each": { "where": { "Operation": "1" },  "as": { "sku": "{{row:Sku}}" } } },
+    "delete": { "$each": { "where": { "Operation": "-1" }, "as": { "sku": "{{row:Sku}}" } } }
+  }
+}

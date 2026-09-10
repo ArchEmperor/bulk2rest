@@ -1,0 +1,6 @@
+bin/
+obj/
+out/
+config.json
+.idea/
+publish/

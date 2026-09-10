@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>bulk2rest — Config</title>
+  <style>
+    :root {
+      --bg: #14171c; --panel: #1c2027; --panel2: #23272f; --border: #333b47;
+      --fg: #e6e9ef; --muted: #93a1b0; --accent: #4c8dff; --ok: #3fb950; --err: #f85149;
+      --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg);
+      font: 14px/1.5 system-ui, "Segoe UI", sans-serif; }
+    header { padding: 12px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px; }
+    header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+    header .path { color: var(--muted); font: 12px var(--mono); }
+    .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; }
+    @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+    .panel { background: var(--panel); border: 1px solid var(--border);
+      border-radius: 8px; padding: 16px; }
+    .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--muted); margin: 0 0 12px; }
+    label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+    input, select, textarea {
+      width: 100%; background: var(--panel2); color: var(--fg);
+      border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; font: inherit; }
+    textarea { font: 13px/1.45 var(--mono); resize: vertical; }
+    .row { display: flex; gap: 8px; }
+    .row > * { flex: 1; }
+    .hdr-row { display: grid; grid-template-columns: 1fr 2fr auto; gap: 6px; margin-bottom: 6px; }
+    .hdr-row button { flex: none; }
+    button { background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 7px 14px; cursor: pointer; font: inherit; }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.small { padding: 4px 8px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .err { color: var(--err); font: 12px var(--mono); white-space: pre-wrap; margin-top: 4px; }
+    .toast { margin-top: 10px; padding: 8px 10px; border-radius: 6px; font-size: 13px;
+      display: none; }
+    .toast.ok { background: rgba(63,185,80,.12); color: var(--ok); display: block; }
+    .toast.bad { background: rgba(248,81,73,.12); color: var(--err); display: block; }
+    .req { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; }
+    .req .head { padding: 7px 10px; background: var(--panel2); font: 12px var(--mono);
+      display: flex; justify-content: space-between; align-items: center; }
+    .req > summary { padding: 7px 10px; background: var(--panel2); font: 12px var(--mono);
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+      cursor: pointer; list-style: none; }
+    .req > summary::-webkit-details-marker { display: none; }
+    .req[open] > summary { border-bottom: 1px solid var(--border); }
+    .req .key { display: flex; gap: 8px; align-items: center; color: var(--muted); }
+    .req .caret { transition: transform .12s; }
+    .req[open] .caret { transform: rotate(90deg); }
+    .req pre { margin: 0; padding: 10px; overflow-x: auto; font: 12px/1.4 var(--mono); }
+    .badge { font: 11px var(--mono); padding: 2px 7px; border-radius: 10px; }
+    .badge.ok { background: rgba(63,185,80,.15); color: var(--ok); }
+    .badge.bad { background: rgba(248,81,73,.15); color: var(--err); }
+    .summary { margin-bottom: 10px; font: 13px var(--mono); }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>bulk2rest</h1>
+    <span class="path" id="cfgPath"></span>
+  </header>
+
+  <div class="wrap">
+    <!-- CONFIG -->
+    <section class="panel">
+      <h2>Config</h2>
+
+      <label>Request URL</label>
+      <input id="url" placeholder="https://target/api/sync">
+
+      <div class="row">
+        <div>
+          <label>Method</label>
+          <select id="method">
+            <option>POST</option><option>PUT</option><option>PATCH</option>
+            <option>GET</option><option>DELETE</option>
+          </select>
+        </div>
+        <div>
+          <label>CSV delimiter</label>
+          <input id="delimiter" value=",">
+        </div>
+      </div>
+
+      <label>Headers</label>
+      <div id="headers"></div>
+      <button class="small" onclick="addHeaderRow()">+ header</button>
+
+      <label style="margin-top:12px">Auth</label>
+      <select id="authType" onchange="syncAuthFields()">
+        <option value="none">None — use the headers above</option>
+        <option value="basic">HTTP Basic</option>
+        <option value="token">Token — minted by a login request</option>
+      </select>
+      <div id="authFields">
+        <div id="tokenBlock" style="margin-top:6px">
+          <label>Token request URL</label>
+          <input id="tokenUrl" placeholder="https://host/api/token">
+
+          <div class="row" style="margin-top:6px">
+            <div>
+              <label>Token is in</label>
+              <select id="tokenFrom" onchange="syncTokenFields()">
+                <option value="body">Response body (bare string)</option>
+                <option value="json">JSON field</option>
+                <option value="header">Response header</option>
+              </select>
+            </div>
+            <div id="tokenWhereWrap">
+              <label id="tokenWhereLabel">Path</label>
+              <input id="tokenWhere" placeholder="data.accessToken">
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:6px">
+            <div>
+              <label>Header prefix</label>
+              <input id="tokenPrefix" placeholder="Bearer ">
+            </div>
+            <div>
+              <label>Retry once on 401</label>
+              <select id="tokenRetry">
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
+            </div>
+          </div>
+
+          <label style="margin-top:10px">Login request body (JSON, optional)</label>
+          <textarea id="tokenBody" rows="3"
+            placeholder='{ "username": "{{userName}}", "password": "{{password}}" }'></textarea>
+          <div class="hint">Optional. Defaults to <code>{ "username": …, "password": … }</code>.
+            <code>{{userName}}</code> / <code>{{password}}</code> are substituted from the fields below.</div>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <input id="authUser" placeholder="Login">
+          <input id="authPass" type="password" placeholder="Password">
+        </div>
+      </div>
+      <div class="hint" id="authHint"></div>
+
+      <label>Grouping mode</label>
+      <select id="groupMode" onchange="syncGroupFields()">
+        <option value="group">Group rows by columns</option>
+        <option value="row">One request per row</option>
+      </select>
+      <div class="hint" id="groupHint"></div>
+
+      <div id="groupFields">
+        <label>Group by (comma-separated columns)</label>
+        <input id="groupBy" placeholder="FolderId">
+
+        <label>Batch size (rows per request)</label>
+        <input id="batchSize" type="number" min="0" placeholder="50">
+        <div class="hint">Splits a large group into several requests. Empty or 0 sends
+          each group as one request.</div>
+      </div>
+
+      <label>Body template (JSON) —
+        <span style="text-transform:none">tokens: <code>{{group:COL}}</code>, <code>{{row:COL}}</code>,
+        pivot: <code>{ "$each": { "where": {…}, "as": {…} } }</code></span>
+      </label>
+      <textarea id="tpl" rows="16" oninput="validateTpl()"></textarea>
+      <div class="err" id="tplErr"></div>
+
+      <div class="actions">
+        <button onclick="loadConfig()">Reload</button>
+        <button class="primary" onclick="saveConfig()">Save config.json</button>
+      </div>
+      <div class="toast" id="cfgToast"></div>
+    </section>
+
+    <!-- CSV + ACTIONS + RESULTS -->
+    <section class="panel">
+      <h2>CSV export</h2>
+      <label>CSV file — read from disk, any size</label>
+      <div class="row" style="align-items: stretch">
+        <input id="csvPath" placeholder="C:\exports\input.csv" style="flex: 3" onchange="loadHead()">
+        <button class="small" style="flex: 0 0 auto" onclick="pickFile()">Browse…</button>
+      </div>
+      <div class="hint">Pick a file (or type a path). Only the first rows are previewed here —
+        the whole file is read server-side on Preview/Run. Takes priority over paste below.</div>
+      <textarea id="csvHead" rows="6" readonly placeholder="File preview (first 100 rows) appears here…" style="margin-top: 8px"></textarea>
+
+      <label style="margin-top:12px">…or paste a small CSV manually (header row required)</label>
+      <textarea id="csv" rows="4" placeholder="Id,Name,Quantity&#10;…"></textarea>
+
+      <div class="actions">
+        <button class="primary" onclick="preview()">Preview</button>
+        <button onclick="run('dry')">Dry-run (write files)</button>
+        <button onclick="run('send')">Send (live requests)</button>
+      </div>
+      <div class="hint">Preview and run use the edited config above (unsaved edits included).</div>
+      <div class="toast" id="runToast"></div>
+
+      <h2 style="margin-top:18px">Result</h2>
+      <div id="results"></div>
+    </section>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const text = await res.text();
+  if (!res.ok) throw new Error(text || res.statusText);
+  return text ? JSON.parse(text) : null;
+}
+
+// ---- header rows ----
+function addHeaderRow(k = "", v = "") {
+  const row = document.createElement("div");
+  row.className = "hdr-row";
+  row.innerHTML = `<input placeholder="Header" value=""><input placeholder="Value" value="">
+    <button class="small" onclick="this.parentElement.remove()">×</button>`;
+  row.children[0].value = k; row.children[1].value = v;
+  $("headers").appendChild(row);
+}
+function collectHeaders() {
+  const h = {};
+  for (const row of $("headers").children) {
+    const k = row.children[0].value.trim();
+    if (k) h[k] = row.children[1].value;
+  }
+  return h;
+}
+
+// ---- mode-dependent fields ----
+const AUTH_HINTS = {
+  none: "Authorization is taken from the headers above, exactly as typed.",
+  basic: "Sent as <code>Authorization: Basic base64(login:password)</code>.",
+  token: "One token per run: the login request (URL + optional body) is sent, the token is read " +
+          "from where <em>Token is in</em> says, and every request goes out as " +
+          "<code>Authorization: prefix + token</code>. A 401 re-mints once and retries (if enabled)."
+};
+
+function syncAuthFields() {
+  const type = $("authType").value;
+  $("authFields").style.display = type === "none" ? "none" : "";
+  $("tokenBlock").style.display = type === "token" ? "" : "none";
+  $("authHint").innerHTML = AUTH_HINTS[type] ?? "";
+}
+
+function syncTokenFields() {
+  const from = $("tokenFrom").value;
+  $("tokenWhereWrap").style.display = from === "body" ? "none" : "";
+  $("tokenWhereLabel").textContent = from === "header" ? "Header name" : "Path";
+  $("tokenWhere").placeholder = from === "header" ? "X-Token" : "data.accessToken";
+}
+
+function syncGroupFields() {
+  const row = $("groupMode").value === "row";
+  $("groupFields").style.display = row ? "none" : "";
+  $("groupHint").innerHTML = row
+    ? "Every CSV row renders its own request, so <code>{{row:COL}}</code> works at the top " +
+      "level of the template with no <code>$each</code> wrapper. Batch size does not apply."
+    : "Rows sharing the group-by values render one request; <code>$each</code> pivots them into arrays.";
+}
+
+// ---- config <-> form ----
+// The loaded config is kept so Save can preserve keys this form does not edit.
+let loaded = {};
+
+function populate(cfg) {
+  loaded = cfg;
+  $("url").value = cfg.request?.url ?? "";
+  $("method").value = cfg.request?.method ?? "POST";
+  $("delimiter").value = cfg.source?.delimiter ?? ",";
+  $("groupBy").value = (cfg.grouping?.by ?? []).join(", ");
+  $("batchSize").value = cfg.grouping?.batchSize || "";
+  $("headers").innerHTML = "";
+  const hs = cfg.request?.headers ?? {};
+  Object.keys(hs).length ? Object.entries(hs).forEach(([k, v]) => addHeaderRow(k, v)) : addHeaderRow();
+  $("authUser").value = cfg.auth?.userName ?? "";
+  $("authPass").value = cfg.auth?.password ?? "";
+  // Pre-`type` configs carried the token URL flat on auth; migrate them on load.
+  const tk = { ...cfg.auth?.token };
+  if (!tk.url && cfg.auth?.tokenUrl) tk.url = cfg.auth.tokenUrl;
+  $("tokenUrl").value = tk.url ?? "";
+  $("tokenFrom").value = ["body", "json", "header"].includes(tk.from) ? tk.from : "body";
+  $("tokenWhere").value = tk.path ?? tk.header ?? "";
+  $("tokenPrefix").value = tk.prefix ?? "Bearer ";
+  $("tokenRetry").value = tk.retryOn401 === false ? "false" : "true";
+  $("tokenBody").value = tk.body === undefined ? "" : JSON.stringify(tk.body, null, 2);
+  // Same fallbacks the C# side applies to configs written before mode/type existed.
+  $("groupMode").value = cfg.grouping?.mode || ((cfg.grouping?.by ?? []).length ? "group" : "row");
+  $("authType").value = cfg.auth?.type || ((cfg.auth?.token || cfg.auth?.tokenUrl) ? "token" : "none");
+  syncGroupFields();
+  syncAuthFields();
+  syncTokenFields();
+  $("tpl").value = JSON.stringify(cfg.bodyTemplate ?? {}, null, 2);
+  validateTpl();
+}
+
+function assembleConfig() {
+  let bodyTemplate;
+  try { bodyTemplate = JSON.parse($("tpl").value); }
+  catch (e) { throw new Error("Body template is not valid JSON: " + e.message); }
+  const cfg = {
+    ...loaded,
+    source: { ...loaded.source, delimiter: $("delimiter").value || ",", hasHeader: true },
+    request: {
+      ...loaded.request,
+      url: $("url").value.trim(), method: $("method").value, headers: collectHeaders()
+    },
+    grouping: {
+      ...loaded.grouping,
+      mode: $("groupMode").value,
+      // Kept even in row mode so switching back does not lose them.
+      by: $("groupBy").value.split(",").map(s => s.trim()).filter(Boolean),
+      batchSize: parseInt($("batchSize").value, 10) || 0
+    },
+    bodyTemplate
+  };
+  const type = $("authType").value;
+  if (type === "none") delete cfg.auth;
+  else {
+    const auth = {
+      ...loaded.auth,
+      type,
+      userName: $("authUser").value.trim(),
+      password: $("authPass").value
+    };
+    delete auth.tokenUrl; // legacy flat key
+    if (type === "token") {
+      // Spread the loaded block so keys the form does not edit (e.g. method) survive a save.
+      const token = { ...loaded.auth?.token, url: $("tokenUrl").value.trim() };
+      const from = $("tokenFrom").value;
+      token.from = from;
+      delete token.path; delete token.header;
+      if (from === "json") token.path = $("tokenWhere").value.trim();
+      if (from === "header") token.header = $("tokenWhere").value.trim();
+      token.prefix = $("tokenPrefix").value;
+      token.retryOn401 = $("tokenRetry").value === "true";
+      const bodyText = $("tokenBody").value.trim();
+      if (bodyText) {
+        try { token.body = JSON.parse(bodyText); }
+        catch (e) { throw new Error("Token request body is not valid JSON: " + e.message); }
+      } else delete token.body;
+      auth.token = token;
+    } else delete auth.token;
+    cfg.auth = auth;
+  }
+  return cfg;
+}
+
+function validateTpl() {
+  try { JSON.parse($("tpl").value); $("tplErr").textContent = ""; return true; }
+  catch (e) { $("tplErr").textContent = "Invalid JSON: " + e.message; return false; }
+}
+
+function toast(el, msg, ok) { el.className = "toast " + (ok ? "ok" : "bad"); el.textContent = msg; }
+
+// ---- actions ----
+async function loadConfig() {
+  try {
+    const cfg = await api("/api/config");
+    populate(cfg);
+    toast($("cfgToast"), "Loaded config.json", true);
+  } catch (e) { toast($("cfgToast"), "Load failed: " + e.message, false); }
+}
+
+async function saveConfig() {
+  let cfg;
+  try { cfg = assembleConfig(); }
+  catch (e) { toast($("cfgToast"), e.message, false); return; }
+  try {
+    const r = await api("/api/config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cfg, null, 2)
+    });
+    toast($("cfgToast"), "Saved → " + r.saved, true);
+  } catch (e) { toast($("cfgToast"), "Save failed: " + e.message, false); }
+}
+
+async function pickFile() {
+  try {
+    const r = await api("/api/pick", { method: "POST" });
+    if (!r.path) return; // cancelled, or dialog unavailable (non-Windows)
+    $("csvPath").value = r.path;
+    loadHead();
+  } catch (e) { toast($("runToast"), "Browse failed: " + e.message, false); }
+}
+
+// Lightweight peek: server returns only the first N rows, never the whole file.
+async function loadHead() {
+  const path = $("csvPath").value.trim();
+  if (!path) { $("csvHead").value = ""; return; }
+  try {
+    const r = await api("/api/head?path=" + encodeURIComponent(path) + "&n=100");
+    $("csvHead").value = r.text;
+    toast($("runToast"), `Loaded ${path} — previewing first ${r.shown} row(s)`, true);
+  } catch (e) { $("csvHead").value = ""; toast($("runToast"), "Preview failed: " + e.message, false); }
+}
+
+// File path (server reads from disk) takes priority; else the pasted text.
+function csvArgs() {
+  const path = $("csvPath").value.trim();
+  return path ? { csvPath: path } : { csvText: $("csv").value };
+}
+
+function sampleNote(shown, total) {
+  return total > shown ? ` (showing first ${shown})` : "";
+}
+
+async function preview() {
+  let cfg; try { cfg = assembleConfig(); } catch (e) { return toast($("runToast"), e.message, false); }
+  try {
+    const out = await api("/api/preview", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ configJson: JSON.stringify(cfg), ...csvArgs() })
+    });
+    toast($("runToast"), `Preview: ${out.total} request(s)` + sampleNote(out.sample.length, out.total), true);
+    renderRequests(out.sample);
+  } catch (e) { toast($("runToast"), "Preview failed: " + e.message, false); $("results").innerHTML = ""; }
+}
+
+async function run(mode) {
+  let cfg; try { cfg = assembleConfig(); } catch (e) { return toast($("runToast"), e.message, false); }
+  if (mode === "send" && !confirm(`Send live ${cfg.request.method} requests to ${cfg.request.url} ?`)) return;
+  try {
+    const out = await api("/api/run", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ configJson: JSON.stringify(cfg), ...csvArgs(), mode })
+    });
+    if (out.mode === "send") { renderSend(out); toast($("runToast"), `Sent: ${out.ok} ok, ${out.failed} failed`, out.failed === 0); }
+    else { renderRequests(out.sample); toast($("runToast"), `Dry-run: ${out.total} file(s) written to ${out.outDir}` + sampleNote(out.sample.length, out.total), true); }
+  } catch (e) { toast($("runToast"), "Run failed: " + e.message, false); $("results").innerHTML = ""; }
+}
+
+// ---- render ----
+function renderRequests(list) {
+  $("results").innerHTML = list.map(r => `
+    <details class="req">
+      <summary>
+        <span>${esc(r.method)} ${esc(r.url)}</span>
+        <span class="key">${esc(r.groupKey)} <span class="caret">▸</span></span>
+      </summary>
+      <pre>${esc(hdrText(r.headers))}\n\n${esc(r.bodyJson)}</pre>
+    </details>`).join("") || "<div class='hint'>No requests.</div>";
+}
+
+// Authorization is masked server-side, so this confirms auth is attached without exposing the token.
+function hdrText(headers) {
+  const entries = Object.entries(headers || {});
+  if (!entries.length) return "(no headers)";
+  return entries.map(([k, v]) => `${k}: ${v}`).join("\n");
+}
+
+function renderSend(out) {
+  const rows = (out.failures || []).map(r => `
+    <div class="req">
+      <div class="head"><span>${esc(r.groupKey)}</span></div>
+      <pre>${esc(r.status)}</pre>
+    </div>`).join("");
+  $("results").innerHTML =
+    `<div class="summary">${out.ok} ok · ${out.failed} failed` +
+    (out.failed ? ` — failures saved to <code>${esc(out.outDir || "out")}/failed.json</code> (retry: <code>--retry-failed</code>)` : "") +
+    `</div>` + (rows || "<div class='hint'>All requests succeeded.</div>");
+}
+
+function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+// ---- init ----
+// Defaults first: with no config file the fetch fails, and the mode-dependent
+// fields would otherwise stay in their raw markup state, contradicting the selects.
+populate({});
+loadConfig();
+</script>
+</body>
+</html>

@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Resolve Release Tag
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build & Package Artifacts
+        run: |
+          TAG="${{ steps.vars.outputs.tag }}"
+          mkdir -p artifacts dist
+
+          # 1. Windows x64 (Standalone)
+          dotnet publish bulk2rest/bulk2rest.csproj -c Release -r win-x64 --self-contained \
+            -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist/win-x64
+          cp -r bulk2rest/examples dist/win-x64/examples
+          cp bulk2rest/sample.csv dist/win-x64/
+          cp README.md dist/win-x64/
+          (cd dist/win-x64 && zip -r "../../artifacts/bulk2rest-${TAG}-win-x64.zip" *)
+
+          # 2. Linux x64 (Standalone)
+          dotnet publish bulk2rest/bulk2rest.csproj -c Release -r linux-x64 --self-contained \
+            -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist/linux-x64
+          cp -r bulk2rest/examples dist/linux-x64/examples
+          cp bulk2rest/sample.csv dist/linux-x64/
+          cp README.md dist/linux-x64/
+          chmod +x dist/linux-x64/bulk2rest
+          (cd dist/linux-x64 && tar -czf "../../artifacts/bulk2rest-${TAG}-linux-x64.tar.gz" *)
+
+          # 3. macOS ARM64 (Apple Silicon, Standalone)
+          dotnet publish bulk2rest/bulk2rest.csproj -c Release -r osx-arm64 --self-contained \
+            -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist/osx-arm64
+          cp -r bulk2rest/examples dist/osx-arm64/examples
+          cp bulk2rest/sample.csv dist/osx-arm64/
+          cp README.md dist/osx-arm64/
+          chmod +x dist/osx-arm64/bulk2rest
+          (cd dist/osx-arm64 && tar -czf "../../artifacts/bulk2rest-${TAG}-osx-arm64.tar.gz" *)
+
+          # 4. Portable (Requires .NET 10 Runtime, ~500 KB)
+          dotnet publish bulk2rest/bulk2rest.csproj -c Release --no-self-contained -o dist/portable
+          cp -r bulk2rest/examples dist/portable/examples
+          cp bulk2rest/sample.csv dist/portable/
+          cp README.md dist/portable/
+          (cd dist/portable && zip -r "../../artifacts/bulk2rest-${TAG}-portable.zip" *)
+
+          # 5. Generate Checksums
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: bulk2rest ${{ steps.vars.outputs.tag }}
+          files: artifacts/*
+          generate_release_notes: true
+          body: |
+            Config-driven CSV to REST API synchronization tool with an embedded Web UI and CLI.
+
+            For detailed configuration options, schema reference, and examples, see the [README](https://github.com/${{ github.repository }}#readme).

@@ -172,8 +172,10 @@
       <div class="err" id="tplErr"></div>
 
       <div class="actions">
+        <button onclick="pickConfig('OpenConfig', loadConfig)">Open…</button>
         <button onclick="loadConfig()">Reload</button>
-        <button class="primary" onclick="saveConfig()">Save config.json</button>
+        <button onclick="pickConfig('SaveConfig', saveConfig)">Save as…</button>
+        <button class="primary" onclick="saveConfig()">Save</button>
       </div>
       <div class="toast" id="cfgToast"></div>
     </section>
@@ -361,25 +363,40 @@ function validateTpl() {
 function toast(el, msg, ok) { el.className = "toast " + (ok ? "ok" : "bad"); el.textContent = msg; }
 
 // ---- actions ----
-async function loadConfig() {
+// Empty = the server's startup --config file.
+let cfgFile = "";
+
+function setCfgFile(path) { cfgFile = path; $("cfgPath").textContent = path; }
+
+async function loadConfig(path = cfgFile) {
   try {
-    const cfg = await api("/api/config");
-    populate(cfg);
-    toast($("cfgToast"), "Loaded config.json", true);
+    const r = await api("/api/config?path=" + encodeURIComponent(path));
+    setCfgFile(r.path);
+    populate(r.config);
+    toast($("cfgToast"), "Loaded " + r.path, true);
   } catch (e) { toast($("cfgToast"), "Load failed: " + e.message, false); }
 }
 
-async function saveConfig() {
+async function saveConfig(path = cfgFile) {
   let cfg;
   try { cfg = assembleConfig(); }
   catch (e) { toast($("cfgToast"), e.message, false); return; }
   try {
-    const r = await api("/api/config", {
+    const r = await api("/api/config?path=" + encodeURIComponent(path), {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(cfg, null, 2)
     });
+    setCfgFile(r.saved);
     toast($("cfgToast"), "Saved → " + r.saved, true);
   } catch (e) { toast($("cfgToast"), "Save failed: " + e.message, false); }
+}
+
+// kind: OpenConfig | SaveConfig; the dialog opens at the current config's folder.
+async function pickConfig(kind, then) {
+  try {
+    const r = await api(`/api/pick?kind=${kind}&from=${encodeURIComponent(cfgFile)}`, { method: "POST" });
+    if (r.path) then(r.path); // null = cancelled
+  } catch (e) { toast($("cfgToast"), "Browse failed: " + e.message, false); }
 }
 
 async function pickFile() {

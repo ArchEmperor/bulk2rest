@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -56,23 +57,33 @@ public static class UiServer
 
     private static void MapEndpoints(WebApplication app, string configPath)
     {
-        app.MapGet("/api/config", () =>
-            File.Exists(configPath)
-                ? Results.Text(File.ReadAllText(configPath), "application/json")
-                : Results.NotFound($"Config not found: {Path.GetFullPath(configPath)}"));
+        // No path = the startup --config file.
+        string Resolve(string? path) => Path.GetFullPath(string.IsNullOrWhiteSpace(path) ? configPath : path);
 
-        app.MapPost("/api/config", async (HttpContext ctx) =>
+        app.MapGet("/api/config", (string? path) =>
+        {
+            var file = Resolve(path);
+            if (!File.Exists(file)) return Results.NotFound($"Config not found: {file}");
+            try { return Results.Json(new { path = file, config = JsonNode.Parse(File.ReadAllText(file)) }); }
+            catch (Exception ex) { return Results.BadRequest($"Invalid config: {ex.Message}"); }
+        });
+
+        app.MapPost("/api/config", async (HttpContext ctx, string? path) =>
         {
             var text = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
             try { SyncConfig.Parse(text); }
             catch (Exception ex) { return Results.BadRequest($"Invalid config: {ex.Message}"); }
-            await File.WriteAllTextAsync(configPath, text);
-            return Results.Ok(new { saved = Path.GetFullPath(configPath) });
+            var file = Resolve(path);
+            try { await File.WriteAllTextAsync(file, text); }
+            catch (Exception ex) { return Results.BadRequest($"Save failed: {ex.Message}"); }
+            return Results.Ok(new { saved = file });
         });
 
-        app.MapPost("/api/pick", () =>
+        // "from" seeds the config dialogs with the current config's folder and name.
+        app.MapPost("/api/pick", (PickKind? kind, string? from) =>
         {
-            var path = NativeFilePicker.Pick();
+            var k = kind ?? PickKind.Csv;
+            var path = NativeFilePicker.Pick(k, k == PickKind.Csv ? null : Resolve(from));
             return Results.Json(new { path });
         });
 

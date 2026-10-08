@@ -38,11 +38,6 @@ public static class RequestBuilder
         SyncConfig config, List<Dictionary<string, string>> rows)
     {
         var by = config.Grouping.By;
-        if (by.Count == 0)
-            throw new InvalidOperationException(
-                "grouping.by must list at least one column in group mode " +
-                "(use grouping.mode \"row\" for one request per row).");
-
         var batchSize = config.Grouping.BatchSize;
         var requests = new List<RenderedRequest>();
         foreach (var group in rows.GroupBy(r => KeyOf(r, by)))
@@ -55,7 +50,8 @@ public static class RequestBuilder
             {
                 var body = TemplateEngine.Render(config.BodyTemplate, groupKey, batches[i]);
                 // Batch suffix keeps dry-run filenames unique within a group.
-                var key = batches.Count > 1 ? $"{group.Key}#{i + 1}" : group.Key;
+                var name = group.Key.Length > 0 ? group.Key : "all";
+                var key = batches.Count > 1 ? $"{name}#{i + 1}" : name;
                 requests.Add(Render(config, key, body));
             }
         }

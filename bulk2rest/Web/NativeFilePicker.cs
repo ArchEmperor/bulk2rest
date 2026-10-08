@@ -61,11 +61,13 @@ internal static class NativeFilePicker
         _ => ("Select CSV export", "CSV files\0*.csv\0Text files\0*.csv;*.txt\0All files\0*.*\0\0", false),
     };
 
-    /// Returns the selected path, or null if the user cancelled or the OS is not Windows.
+    /// Returns the selected path, or null if the user cancelled.
     /// initialPath pre-selects the folder and file name in the dialog.
     public static string? Pick(PickKind kind, string? initialPath = null)
     {
-        if (!OperatingSystem.IsWindows()) return null;
+        if (!OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException(
+                "File dialogs are Windows-only: type the CSV path, pass --config for the config.");
 
         // Own the dialog to whatever window is in front (the browser that called us),
         // so it opens on top and focused instead of behind, fighting the foreground lock.
@@ -98,7 +100,7 @@ internal static class NativeFilePicker
                 lpstrInitialDir = Path.GetDirectoryName(initialPath),
                 lpstrTitle = title,
                 lpstrDefExt = save ? "json" : null,
-                // NOCHANGEDIR: the dialog would otherwise move the process cwd and break relative config/out paths.
+                // NOCHANGEDIR: the dialog would otherwise move the process cwd and break the relative out dir.
                 Flags = (save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST) | OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR,
             };
             var ok = save ? GetSaveFileName(ref ofn) : GetOpenFileName(ref ofn);

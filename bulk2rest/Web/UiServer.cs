@@ -34,6 +34,9 @@ public static class UiServer
             }
         }
 
+        // Pinned now: a file dialog may move the process cwd later.
+        configPath = Path.GetFullPath(configPath);
+
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         // "localhost" binds both loopback stacks (127.0.0.1 + ::1), never external.
@@ -47,7 +50,7 @@ public static class UiServer
 
         var url = $"http://localhost:{port}";
         Console.WriteLine($"bulk2rest UI -> {url}");
-        Console.WriteLine($"Config file: {Path.GetFullPath(configPath)}");
+        Console.WriteLine($"Config file: {configPath}");
         Console.WriteLine("Ctrl+C to stop.");
         OpenBrowser(url);
 
@@ -70,6 +73,9 @@ public static class UiServer
 
         app.MapPost("/api/config", async (HttpContext ctx, string? path) =>
         {
+            // A JSON content type forces a CORS preflight, so other sites cannot write files through us.
+            if (!ctx.Request.HasJsonContentType())
+                return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);
             var text = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
             try { SyncConfig.Parse(text); }
             catch (Exception ex) { return Results.BadRequest($"Invalid config: {ex.Message}"); }
@@ -83,8 +89,8 @@ public static class UiServer
         app.MapPost("/api/pick", (PickKind? kind, string? from) =>
         {
             var k = kind ?? PickKind.Csv;
-            var path = NativeFilePicker.Pick(k, k == PickKind.Csv ? null : Resolve(from));
-            return Results.Json(new { path });
+            try { return Results.Json(new { path = NativeFilePicker.Pick(k, k == PickKind.Csv ? null : Resolve(from)) }); }
+            catch (PlatformNotSupportedException ex) { return Results.BadRequest(ex.Message); }
         });
 
         app.MapGet("/api/head", (string path, int? n) =>

@@ -402,7 +402,7 @@ async function pickConfig(kind, then) {
 async function pickFile() {
   try {
     const r = await api("/api/pick", { method: "POST" });
-    if (!r.path) return; // cancelled, or dialog unavailable (non-Windows)
+    if (!r.path) return; // cancelled
     $("csvPath").value = r.path;
     loadHead();
   } catch (e) { toast($("runToast"), "Browse failed: " + e.message, false); }

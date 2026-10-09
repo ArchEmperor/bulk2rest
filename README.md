@@ -110,6 +110,7 @@ once per run and cached.
 - **`group`** — rows sharing the values of `by` render one request together, which is
   what `$each` pivots over. A group larger than `batchSize` is split across several
   requests, each suffixed `#1`, `#2`, … in the logs and dry-run filenames.
+  An empty `by` puts the whole CSV into one request ("All rows in one request" in the UI).
 
 Omitting `mode` infers `group` when `by` is non-empty, otherwise `row`.
 

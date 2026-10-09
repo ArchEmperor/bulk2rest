@@ -60,6 +60,9 @@
     .badge.bad { background: rgba(248,81,73,.15); color: var(--err); }
     .summary { margin-bottom: 10px; font: 13px var(--mono); }
     .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    footer { padding: 4px 20px 16px; text-align: center; color: var(--muted); font-size: 12px; }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
     dialog { background: var(--panel); color: var(--fg); border: 1px solid var(--border);
       border-radius: 8px; padding: 16px; width: min(640px, 92vw); }
     dialog::backdrop { background: rgba(0,0,0,.55); }
@@ -160,13 +163,16 @@
       <label>Grouping mode</label>
       <select id="groupMode" onchange="syncGroupFields()">
         <option value="group">Group rows by columns</option>
+        <option value="all">All rows in one request</option>
         <option value="row">One request per row</option>
       </select>
       <div class="hint" id="groupHint"></div>
 
       <div id="groupFields">
-        <label>Group by (comma-separated columns)</label>
-        <input id="groupBy" placeholder="FolderId">
+        <div id="groupByField">
+          <label>Group by (comma-separated columns)</label>
+          <input id="groupBy" placeholder="FolderId">
+        </div>
 
         <label>Batch size (rows per request)</label>
         <input id="batchSize" type="number" min="0" placeholder="50">
@@ -217,6 +223,11 @@
       <div id="results"></div>
     </section>
   </div>
+
+  <footer>
+    <a href="https://github.com/ArchEmperor/bulk2rest" target="_blank" rel="noopener">github.com/ArchEmperor/bulk2rest</a>
+    · by ArchEmperor
+  </footer>
 
   <dialog id="fb">
     <h2 id="fbTitle"></h2>
@@ -286,13 +297,19 @@ function syncTokenFields() {
   $("tokenWhere").placeholder = from === "header" ? "X-Token" : "data.accessToken";
 }
 
+const GROUP_HINTS = {
+  group: "Rows sharing the group-by values render one request; <code>$each</code> pivots them into arrays.",
+  all: "The whole CSV renders one request; <code>$each</code> pivots the rows into arrays. " +
+       "A batch size still splits it into several requests.",
+  row: "Every CSV row renders its own request, so <code>{{row:COL}}</code> works at the top " +
+       "level of the template with no <code>$each</code> wrapper. Batch size does not apply."
+};
+
 function syncGroupFields() {
-  const row = $("groupMode").value === "row";
-  $("groupFields").style.display = row ? "none" : "";
-  $("groupHint").innerHTML = row
-    ? "Every CSV row renders its own request, so <code>{{row:COL}}</code> works at the top " +
-      "level of the template with no <code>$each</code> wrapper. Batch size does not apply."
-    : "Rows sharing the group-by values render one request; <code>$each</code> pivots them into arrays.";
+  const mode = $("groupMode").value;
+  $("groupFields").style.display = mode === "row" ? "none" : "";
+  $("groupByField").style.display = mode === "all" ? "none" : "";
+  $("groupHint").innerHTML = GROUP_HINTS[mode];
 }
 
 // ---- config <-> form ----
@@ -321,7 +338,10 @@ function populate(cfg) {
   $("tokenRetry").value = tk.retryOn401 === false ? "false" : "true";
   $("tokenBody").value = tk.body === undefined ? "" : JSON.stringify(tk.body, null, 2);
   // Same fallbacks the C# side applies to configs written before mode/type existed.
-  $("groupMode").value = cfg.grouping?.mode || ((cfg.grouping?.by ?? []).length ? "group" : "row");
+  const grouped = (cfg.grouping?.by ?? []).length > 0;
+  const mode = cfg.grouping?.mode || (grouped ? "group" : "row");
+  // "all" is not a config mode: it is group mode with no key columns.
+  $("groupMode").value = mode === "group" && !grouped ? "all" : mode;
   $("authType").value = cfg.auth?.type || ((cfg.auth?.token || cfg.auth?.tokenUrl) ? "token" : "none");
   syncGroupFields();
   syncAuthFields();
@@ -334,6 +354,7 @@ function assembleConfig() {
   let bodyTemplate;
   try { bodyTemplate = JSON.parse($("tpl").value); }
   catch (e) { throw new Error("Body template is not valid JSON: " + e.message); }
+  const mode = $("groupMode").value;
   const cfg = {
     ...loaded,
     source: { ...loaded.source, delimiter: $("delimiter").value || ",", hasHeader: true },
@@ -343,9 +364,9 @@ function assembleConfig() {
     },
     grouping: {
       ...loaded.grouping,
-      mode: $("groupMode").value,
+      mode: mode === "all" ? "group" : mode,
       // Kept even in row mode so switching back does not lose them.
-      by: $("groupBy").value.split(",").map(s => s.trim()).filter(Boolean),
+      by: mode === "all" ? [] : $("groupBy").value.split(",").map(s => s.trim()).filter(Boolean),
       batchSize: parseInt($("batchSize").value, 10) || 0
     },
     bodyTemplate

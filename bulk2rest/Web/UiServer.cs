@@ -34,7 +34,6 @@ public static class UiServer
             }
         }
 
-        // Pinned now: a file dialog may move the process cwd later.
         configPath = Path.GetFullPath(configPath);
 
         var builder = WebApplication.CreateBuilder();
@@ -85,12 +84,27 @@ public static class UiServer
             return Results.Ok(new { saved = file });
         });
 
-        // "from" seeds the config dialogs with the current config's folder and name.
-        app.MapPost("/api/pick", (PickKind? kind, string? from) =>
+        // Feeds the in-page file browser: browsers cannot expose a real disk path themselves.
+        app.MapGet("/api/browse", (string? dir) =>
         {
-            var k = kind ?? PickKind.Csv;
-            try { return Results.Json(new { path = NativeFilePicker.Pick(k, k == PickKind.Csv ? null : Resolve(from)) }); }
-            catch (PlatformNotSupportedException ex) { return Results.BadRequest(ex.Message); }
+            try
+            {
+                var info = new DirectoryInfo(string.IsNullOrWhiteSpace(dir) ? Path.GetDirectoryName(configPath)! : dir);
+                var entries = info.EnumerateFileSystemInfos()
+                    .Select(e => new { name = e.Name, isDir = e is DirectoryInfo })
+                    .OrderBy(e => !e.isDir).ThenBy(e => e.name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                return Results.Json(new
+                {
+                    dir = info.FullName,
+                    parent = info.Parent?.FullName,
+                    sep = Path.DirectorySeparatorChar,
+                    // Unix mount points share the "/" root, so only Windows lists several.
+                    roots = Directory.GetLogicalDrives().Where(d => Path.GetPathRoot(d) == d),
+                    entries
+                });
+            }
+            catch (Exception ex) { return Results.BadRequest(ex.Message); }
         });
 
         app.MapGet("/api/head", (string path, int? n) =>

@@ -21,7 +21,7 @@
     @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
     .panel { background: var(--panel); border: 1px solid var(--border);
       border-radius: 8px; padding: 16px; }
-    .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+    .panel h2, dialog h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
       color: var(--muted); margin: 0 0 12px; }
     label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
     input, select, textarea {
@@ -60,6 +60,16 @@
     .badge.bad { background: rgba(248,81,73,.15); color: var(--err); }
     .summary { margin-bottom: 10px; font: 13px var(--mono); }
     .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    dialog { background: var(--panel); color: var(--fg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 16px; width: min(640px, 92vw); }
+    dialog::backdrop { background: rgba(0,0,0,.55); }
+    #fbList { height: 320px; overflow-y: auto; margin-top: 8px;
+      border: 1px solid var(--border); border-radius: 6px; }
+    .fb-item { display: block; width: 100%; text-align: left; border: 0; border-radius: 0;
+      background: none; padding: 4px 10px; font: 13px var(--mono); }
+    .fb-item:hover, .fb-item:focus { background: var(--panel2); }
+    #fbAll { width: auto; }
+    #fbUp:disabled { opacity: .5; cursor: default; }
   </style>
 </head>
 <body>
@@ -172,9 +182,9 @@
       <div class="err" id="tplErr"></div>
 
       <div class="actions">
-        <button onclick="pickConfig('OpenConfig', loadConfig)">Open…</button>
+        <button onclick="pickPath('open', loadConfig)">Open…</button>
         <button onclick="loadConfig()">Reload</button>
-        <button onclick="pickConfig('SaveConfig', saveConfig)">Save as…</button>
+        <button onclick="pickPath('save', saveConfig)">Save as…</button>
         <button class="primary" onclick="saveConfig()">Save</button>
       </div>
       <div class="toast" id="cfgToast"></div>
@@ -186,7 +196,7 @@
       <label>CSV file — read from disk, any size</label>
       <div class="row" style="align-items: stretch">
         <input id="csvPath" placeholder="C:\exports\input.csv" style="flex: 3" onchange="loadHead()">
-        <button class="small" style="flex: 0 0 auto" onclick="pickFile()">Browse…</button>
+        <button class="small" style="flex: 0 0 auto" onclick="pickPath('csv', pickedCsv)">Browse…</button>
       </div>
       <div class="hint">Pick a file (or type a path). Only the first rows are previewed here —
         the whole file is read server-side on Preview/Run. Takes priority over paste below.</div>
@@ -207,6 +217,23 @@
       <div id="results"></div>
     </section>
   </div>
+
+  <dialog id="fb">
+    <h2 id="fbTitle"></h2>
+    <div class="row">
+      <button class="small" id="fbUp" style="flex: none" disabled onclick="browse(fb.parent)">↑ Up</button>
+      <input id="fbDir" onchange="browse(this.value)">
+    </div>
+    <div class="actions" id="fbRoots"></div>
+    <div id="fbList"></div>
+    <div class="err" id="fbErr"></div>
+    <label><input type="checkbox" id="fbAll" onchange="renderEntries()"> All files</label>
+    <div class="row" id="fbSave">
+      <input id="fbName" placeholder="File name" style="flex: 3" onkeydown="if (event.key === 'Enter') acceptSave()">
+      <button class="primary" style="flex: none" onclick="acceptSave()">Save</button>
+    </div>
+    <div class="actions"><button onclick="$('fb').close()">Cancel</button></div>
+  </dialog>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -391,22 +418,66 @@ async function saveConfig(path = cfgFile) {
   } catch (e) { toast($("cfgToast"), "Save failed: " + e.message, false); }
 }
 
-// kind: OpenConfig | SaveConfig; the dialog opens at the current config's folder.
-async function pickConfig(kind, then) {
-  try {
-    const r = await api(`/api/pick?kind=${kind}&from=${encodeURIComponent(cfgFile)}`, { method: "POST" });
-    if (r.path) then(r.path); // null = cancelled
-  } catch (e) { toast($("cfgToast"), "Browse failed: " + e.message, false); }
+// ---- file browser ----
+// Listed by the server, so it behaves the same on every OS.
+const PICKERS = {
+  csv: { title: "Select CSV export", exts: [".csv", ".txt"] },
+  open: { title: "Open config", exts: [".json"] },
+  save: { title: "Save config as", exts: [".json"], save: true }
+};
+let fb = {};      // active picker + current listing
+let lastDir = ""; // empty = the config's folder
+
+function pickPath(kind, then) {
+  // Keeps the previous listing, so the entries on screen stay valid until the reload lands.
+  fb = { ...fb, save: false, ...PICKERS[kind], then };
+  $("fbTitle").textContent = fb.title;
+  $("fbSave").style.display = fb.save ? "" : "none";
+  $("fbName").value = cfgFile.split(/[\\/]/).pop();
+  $("fb").showModal();
+  browse(lastDir);
 }
 
-async function pickFile() {
+async function browse(dir) {
   try {
-    const r = await api("/api/pick", { method: "POST" });
-    if (!r.path) return; // cancelled
-    $("csvPath").value = r.path;
-    loadHead();
-  } catch (e) { toast($("runToast"), "Browse failed: " + e.message, false); }
+    Object.assign(fb, await api("/api/browse?dir=" + encodeURIComponent(dir)));
+    $("fbErr").textContent = "";
+  } catch (e) { $("fbErr").textContent = e.message; return; }
+  $("fbDir").value = fb.dir;
+  $("fbUp").disabled = !fb.parent;
+  $("fbRoots").innerHTML = fb.roots.length < 2 ? "" : fb.roots.map((r, i) =>
+    `<button class="small" onclick="browse(fb.roots[${i}])">${esc(r)}</button>`).join("");
+  renderEntries();
 }
+
+function renderEntries() {
+  const all = $("fbAll").checked;
+  fb.shown = fb.entries.filter(e => e.isDir || all || fb.exts.some(x => e.name.toLowerCase().endsWith(x)));
+  $("fbList").innerHTML = fb.shown.map((e, i) =>
+    `<button class="fb-item" onclick="pickEntry(${i})">${e.isDir ? "📁" : "📄"} ${esc(e.name)}</button>`).join("")
+    || "<div class='hint' style='padding: 0 10px'>No matching files.</div>";
+}
+
+const inDir = name => fb.dir + (fb.dir.endsWith(fb.sep) ? "" : fb.sep) + name;
+
+function pickEntry(i) {
+  const e = fb.shown[i];
+  if (e.isDir) browse(inDir(e.name));
+  else if (fb.save) $("fbName").value = e.name;
+  else accept(inDir(e.name));
+}
+
+function acceptSave() {
+  let name = $("fbName").value.trim();
+  if (!name || !fb.dir) return;
+  if (!name.includes(".")) name += fb.exts[0];
+  const exists = fb.entries.some(e => e.name.toLowerCase() === name.toLowerCase());
+  if (!exists || confirm(`${name} already exists. Overwrite?`)) accept(inDir(name));
+}
+
+function accept(path) { lastDir = fb.dir; $("fb").close(); fb.then(path); }
+
+function pickedCsv(path) { $("csvPath").value = path; loadHead(); }
 
 // Lightweight peek: server returns only the first N rows, never the whole file.
 async function loadHead() {

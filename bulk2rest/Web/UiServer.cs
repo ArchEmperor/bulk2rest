@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using bulk2rest.Config;
 using bulk2rest.Csv;
@@ -34,13 +35,14 @@ public static class UiServer
             }
         }
 
-        // Pinned now: a file dialog may move the process cwd later.
         configPath = Path.GetFullPath(configPath);
 
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         // "localhost" binds both loopback stacks (127.0.0.1 + ::1), never external.
         builder.WebHost.UseUrls($"http://localhost:{port}");
+        // Blocks DNS rebinding: a foreign hostname pointed at 127.0.0.1 would otherwise be same-origin.
+        builder.Configuration["AllowedHosts"] = "localhost;127.0.0.1;[::1]";
         // Local single-user tool: allow large pasted-CSV bodies (default is 30 MB).
         builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = null);
 
@@ -48,13 +50,16 @@ public static class UiServer
         app.MapGet("/", () => Results.Content(IndexHtml, "text/html; charset=utf-8"));
         MapEndpoints(app, configPath);
 
+        // Bound first: on a port clash the browser would open whatever already owns the port.
+        await app.StartAsync();
+
         var url = $"http://localhost:{port}";
         Console.WriteLine($"bulk2rest UI -> {url}");
         Console.WriteLine($"Config file: {configPath}");
         Console.WriteLine("Ctrl+C to stop.");
         OpenBrowser(url);
 
-        await app.RunAsync();
+        await app.WaitForShutdownAsync();
         return 0;
     }
 
@@ -85,12 +90,27 @@ public static class UiServer
             return Results.Ok(new { saved = file });
         });
 
-        // "from" seeds the config dialogs with the current config's folder and name.
-        app.MapPost("/api/pick", (PickKind? kind, string? from) =>
+        // Feeds the in-page file browser: browsers cannot expose a real disk path themselves.
+        app.MapGet("/api/browse", (string? dir) =>
         {
-            var k = kind ?? PickKind.Csv;
-            try { return Results.Json(new { path = NativeFilePicker.Pick(k, k == PickKind.Csv ? null : Resolve(from)) }); }
-            catch (PlatformNotSupportedException ex) { return Results.BadRequest(ex.Message); }
+            try
+            {
+                var info = new DirectoryInfo(string.IsNullOrWhiteSpace(dir) ? Path.GetDirectoryName(configPath)! : dir);
+                var entries = info.EnumerateFileSystemInfos()
+                    .Select(e => new { name = e.Name, isDir = e is DirectoryInfo })
+                    .OrderBy(e => !e.isDir).ThenBy(e => e.name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                return Results.Json(new
+                {
+                    dir = info.FullName,
+                    parent = info.Parent?.FullName,
+                    sep = Path.DirectorySeparatorChar,
+                    // Unix mount points share the "/" root, so only Windows lists several.
+                    roots = Directory.GetLogicalDrives().Where(d => Path.GetPathRoot(d) == d),
+                    entries
+                });
+            }
+            catch (Exception ex) { return Results.BadRequest(ex.Message); }
         });
 
         app.MapGet("/api/head", (string path, int? n) =>

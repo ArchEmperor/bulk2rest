@@ -21,7 +21,7 @@
     @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
     .panel { background: var(--panel); border: 1px solid var(--border);
       border-radius: 8px; padding: 16px; }
-    .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+    .panel h2, dialog h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
       color: var(--muted); margin: 0 0 12px; }
     label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
     input, select, textarea {
@@ -60,6 +60,19 @@
     .badge.bad { background: rgba(248,81,73,.15); color: var(--err); }
     .summary { margin-bottom: 10px; font: 13px var(--mono); }
     .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    footer { padding: 4px 20px 16px; text-align: center; color: var(--muted); font-size: 12px; }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+    dialog { background: var(--panel); color: var(--fg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 16px; width: min(640px, 92vw); }
+    dialog::backdrop { background: rgba(0,0,0,.55); }
+    #fbList { height: 320px; overflow-y: auto; margin-top: 8px;
+      border: 1px solid var(--border); border-radius: 6px; }
+    .fb-item { display: block; width: 100%; text-align: left; border: 0; border-radius: 0;
+      background: none; padding: 4px 10px; font: 13px var(--mono); }
+    .fb-item:hover, .fb-item:focus { background: var(--panel2); }
+    #fbAll { width: auto; }
+    #fbUp:disabled { opacity: .5; cursor: default; }
   </style>
 </head>
 <body>
@@ -150,13 +163,16 @@
       <label>Grouping mode</label>
       <select id="groupMode" onchange="syncGroupFields()">
         <option value="group">Group rows by columns</option>
+        <option value="all">All rows in one request</option>
         <option value="row">One request per row</option>
       </select>
       <div class="hint" id="groupHint"></div>
 
       <div id="groupFields">
-        <label>Group by (comma-separated columns)</label>
-        <input id="groupBy" placeholder="FolderId">
+        <div id="groupByField">
+          <label>Group by (comma-separated columns)</label>
+          <input id="groupBy" placeholder="FolderId">
+        </div>
 
         <label>Batch size (rows per request)</label>
         <input id="batchSize" type="number" min="0" placeholder="50">
@@ -172,9 +188,9 @@
       <div class="err" id="tplErr"></div>
 
       <div class="actions">
-        <button onclick="pickConfig('OpenConfig', loadConfig)">Open…</button>
+        <button onclick="pickPath('open', loadConfig)">Open…</button>
         <button onclick="loadConfig()">Reload</button>
-        <button onclick="pickConfig('SaveConfig', saveConfig)">Save as…</button>
+        <button onclick="pickPath('save', saveConfig)">Save as…</button>
         <button class="primary" onclick="saveConfig()">Save</button>
       </div>
       <div class="toast" id="cfgToast"></div>
@@ -186,7 +202,7 @@
       <label>CSV file — read from disk, any size</label>
       <div class="row" style="align-items: stretch">
         <input id="csvPath" placeholder="C:\exports\input.csv" style="flex: 3" onchange="loadHead()">
-        <button class="small" style="flex: 0 0 auto" onclick="pickFile()">Browse…</button>
+        <button class="small" style="flex: 0 0 auto" onclick="pickPath('csv', pickedCsv)">Browse…</button>
       </div>
       <div class="hint">Pick a file (or type a path). Only the first rows are previewed here —
         the whole file is read server-side on Preview/Run. Takes priority over paste below.</div>
@@ -207,6 +223,28 @@
       <div id="results"></div>
     </section>
   </div>
+
+  <footer>
+    <a href="https://github.com/ArchEmperor/bulk2rest" target="_blank" rel="noopener">github.com/ArchEmperor/bulk2rest</a>
+    · by ArchEmperor
+  </footer>
+
+  <dialog id="fb">
+    <h2 id="fbTitle"></h2>
+    <div class="row">
+      <button class="small" id="fbUp" style="flex: none" disabled onclick="browse(fb.parent)">↑ Up</button>
+      <input id="fbDir" onchange="browse(this.value)">
+    </div>
+    <div class="actions" id="fbRoots"></div>
+    <div id="fbList"></div>
+    <div class="err" id="fbErr"></div>
+    <label><input type="checkbox" id="fbAll" onchange="renderEntries()"> All files</label>
+    <div class="row" id="fbSave">
+      <input id="fbName" placeholder="File name" style="flex: 3" onkeydown="if (event.key === 'Enter') acceptSave()">
+      <button class="primary" style="flex: none" onclick="acceptSave()">Save</button>
+    </div>
+    <div class="actions"><button onclick="$('fb').close()">Cancel</button></div>
+  </dialog>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -259,13 +297,19 @@ function syncTokenFields() {
   $("tokenWhere").placeholder = from === "header" ? "X-Token" : "data.accessToken";
 }
 
+const GROUP_HINTS = {
+  group: "Rows sharing the group-by values render one request; <code>$each</code> pivots them into arrays.",
+  all: "The whole CSV renders one request; <code>$each</code> pivots the rows into arrays. " +
+       "A batch size still splits it into several requests.",
+  row: "Every CSV row renders its own request, so <code>{{row:COL}}</code> works at the top " +
+       "level of the template with no <code>$each</code> wrapper. Batch size does not apply."
+};
+
 function syncGroupFields() {
-  const row = $("groupMode").value === "row";
-  $("groupFields").style.display = row ? "none" : "";
-  $("groupHint").innerHTML = row
-    ? "Every CSV row renders its own request, so <code>{{row:COL}}</code> works at the top " +
-      "level of the template with no <code>$each</code> wrapper. Batch size does not apply."
-    : "Rows sharing the group-by values render one request; <code>$each</code> pivots them into arrays.";
+  const mode = $("groupMode").value;
+  $("groupFields").style.display = mode === "row" ? "none" : "";
+  $("groupByField").style.display = mode === "all" ? "none" : "";
+  $("groupHint").innerHTML = GROUP_HINTS[mode];
 }
 
 // ---- config <-> form ----
@@ -294,7 +338,10 @@ function populate(cfg) {
   $("tokenRetry").value = tk.retryOn401 === false ? "false" : "true";
   $("tokenBody").value = tk.body === undefined ? "" : JSON.stringify(tk.body, null, 2);
   // Same fallbacks the C# side applies to configs written before mode/type existed.
-  $("groupMode").value = cfg.grouping?.mode || ((cfg.grouping?.by ?? []).length ? "group" : "row");
+  const grouped = (cfg.grouping?.by ?? []).length > 0;
+  const mode = cfg.grouping?.mode || (grouped ? "group" : "row");
+  // "all" is not a config mode: it is group mode with no key columns.
+  $("groupMode").value = mode === "group" && !grouped ? "all" : mode;
   $("authType").value = cfg.auth?.type || ((cfg.auth?.token || cfg.auth?.tokenUrl) ? "token" : "none");
   syncGroupFields();
   syncAuthFields();
@@ -307,6 +354,7 @@ function assembleConfig() {
   let bodyTemplate;
   try { bodyTemplate = JSON.parse($("tpl").value); }
   catch (e) { throw new Error("Body template is not valid JSON: " + e.message); }
+  const mode = $("groupMode").value;
   const cfg = {
     ...loaded,
     source: { ...loaded.source, delimiter: $("delimiter").value || ",", hasHeader: true },
@@ -316,9 +364,9 @@ function assembleConfig() {
     },
     grouping: {
       ...loaded.grouping,
-      mode: $("groupMode").value,
+      mode: mode === "all" ? "group" : mode,
       // Kept even in row mode so switching back does not lose them.
-      by: $("groupBy").value.split(",").map(s => s.trim()).filter(Boolean),
+      by: mode === "all" ? [] : $("groupBy").value.split(",").map(s => s.trim()).filter(Boolean),
       batchSize: parseInt($("batchSize").value, 10) || 0
     },
     bodyTemplate
@@ -391,22 +439,66 @@ async function saveConfig(path = cfgFile) {
   } catch (e) { toast($("cfgToast"), "Save failed: " + e.message, false); }
 }
 
-// kind: OpenConfig | SaveConfig; the dialog opens at the current config's folder.
-async function pickConfig(kind, then) {
-  try {
-    const r = await api(`/api/pick?kind=${kind}&from=${encodeURIComponent(cfgFile)}`, { method: "POST" });
-    if (r.path) then(r.path); // null = cancelled
-  } catch (e) { toast($("cfgToast"), "Browse failed: " + e.message, false); }
+// ---- file browser ----
+// Listed by the server, so it behaves the same on every OS.
+const PICKERS = {
+  csv: { title: "Select CSV export", exts: [".csv", ".txt"] },
+  open: { title: "Open config", exts: [".json"] },
+  save: { title: "Save config as", exts: [".json"], save: true }
+};
+let fb = {};      // active picker + current listing
+let lastDir = ""; // empty = the config's folder
+
+function pickPath(kind, then) {
+  // Keeps the previous listing, so the entries on screen stay valid until the reload lands.
+  fb = { ...fb, save: false, ...PICKERS[kind], then };
+  $("fbTitle").textContent = fb.title;
+  $("fbSave").style.display = fb.save ? "" : "none";
+  $("fbName").value = cfgFile.split(/[\\/]/).pop();
+  $("fb").showModal();
+  browse(lastDir);
 }
 
-async function pickFile() {
+async function browse(dir) {
   try {
-    const r = await api("/api/pick", { method: "POST" });
-    if (!r.path) return; // cancelled
-    $("csvPath").value = r.path;
-    loadHead();
-  } catch (e) { toast($("runToast"), "Browse failed: " + e.message, false); }
+    Object.assign(fb, await api("/api/browse?dir=" + encodeURIComponent(dir)));
+    $("fbErr").textContent = "";
+  } catch (e) { $("fbErr").textContent = e.message; return; }
+  $("fbDir").value = fb.dir;
+  $("fbUp").disabled = !fb.parent;
+  $("fbRoots").innerHTML = fb.roots.length < 2 ? "" : fb.roots.map((r, i) =>
+    `<button class="small" onclick="browse(fb.roots[${i}])">${esc(r)}</button>`).join("");
+  renderEntries();
 }
+
+function renderEntries() {
+  const all = $("fbAll").checked;
+  fb.shown = fb.entries.filter(e => e.isDir || all || fb.exts.some(x => e.name.toLowerCase().endsWith(x)));
+  $("fbList").innerHTML = fb.shown.map((e, i) =>
+    `<button class="fb-item" onclick="pickEntry(${i})">${e.isDir ? "📁" : "📄"} ${esc(e.name)}</button>`).join("")
+    || "<div class='hint' style='padding: 0 10px'>No matching files.</div>";
+}
+
+const inDir = name => fb.dir + (fb.dir.endsWith(fb.sep) ? "" : fb.sep) + name;
+
+function pickEntry(i) {
+  const e = fb.shown[i];
+  if (e.isDir) browse(inDir(e.name));
+  else if (fb.save) $("fbName").value = e.name;
+  else accept(inDir(e.name));
+}
+
+function acceptSave() {
+  let name = $("fbName").value.trim();
+  if (!name || !fb.dir) return;
+  if (!name.includes(".")) name += fb.exts[0];
+  const exists = fb.entries.some(e => e.name.toLowerCase() === name.toLowerCase());
+  if (!exists || confirm(`${name} already exists. Overwrite?`)) accept(inDir(name));
+}
+
+function accept(path) { lastDir = fb.dir; $("fb").close(); fb.then(path); }
+
+function pickedCsv(path) { $("csvPath").value = path; loadHead(); }
 
 // Lightweight peek: server returns only the first N rows, never the whole file.
 async function loadHead() {

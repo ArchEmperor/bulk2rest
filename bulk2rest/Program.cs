@@ -58,11 +58,12 @@ static async Task<int> RunCli(string[] args)
         Console.WriteLine($"Parsed {rows.Count} row(s) -> {requests.Count} request(s).");
     }
 
+    var failed = false;
     if (options.Send || options.RetryFailed)
-        await sender.SendAsync(requests);
+        failed = (await sender.SendAsync(requests)).Any(r => !r.Ok);
     else
         sender.DryRun(requests);
 
     ConsoleGuard.PauseIfOwnWindow();
-    return 0;
+    return failed ? 1 : 0;
 }

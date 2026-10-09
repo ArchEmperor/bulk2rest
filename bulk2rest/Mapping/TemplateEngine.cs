@@ -80,8 +80,7 @@ public static partial class TemplateEngine
         foreach (var (col, expected) in where)
         {
             var want = expected?.GetValue<string>() ?? "";
-            if (!row.TryGetValue(col, out var actual) ||
-                !string.Equals(actual, want, StringComparison.Ordinal))
+            if (!string.Equals(Column(row, col), want, StringComparison.Ordinal))
                 return false;
         }
         return true;
@@ -97,11 +96,18 @@ public static partial class TemplateEngine
             var col = m.Groups[2].Value;
             return scope switch
             {
-                "group" => groupKey.TryGetValue(col, out var g) ? g : "",
+                "group" => Column(groupKey, col),
                 "row" => currentRow is null
                     ? throw new InvalidOperationException($"{{{{row:{col}}}}} used outside $each.")
-                    : currentRow.TryGetValue(col, out var r) ? r : "",
+                    : Column(currentRow, col),
                 _ => m.Value
             };
         });
+
+    /// A misspelled column would otherwise render "" and merge or empty requests silently.
+    internal static string Column(IReadOnlyDictionary<string, string> row, string col)
+        => row.TryGetValue(col, out var value)
+            ? value
+            : throw new InvalidOperationException(
+                $"Unknown column '{col}' - check the CSV header and grouping.by.");
 }

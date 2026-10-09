@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using bulk2rest.Config;
 using bulk2rest.Csv;
@@ -40,6 +41,8 @@ public static class UiServer
         builder.Logging.ClearProviders();
         // "localhost" binds both loopback stacks (127.0.0.1 + ::1), never external.
         builder.WebHost.UseUrls($"http://localhost:{port}");
+        // Blocks DNS rebinding: a foreign hostname pointed at 127.0.0.1 would otherwise be same-origin.
+        builder.Configuration["AllowedHosts"] = "localhost;127.0.0.1;[::1]";
         // Local single-user tool: allow large pasted-CSV bodies (default is 30 MB).
         builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = null);
 
@@ -47,13 +50,16 @@ public static class UiServer
         app.MapGet("/", () => Results.Content(IndexHtml, "text/html; charset=utf-8"));
         MapEndpoints(app, configPath);
 
+        // Bound first: on a port clash the browser would open whatever already owns the port.
+        await app.StartAsync();
+
         var url = $"http://localhost:{port}";
         Console.WriteLine($"bulk2rest UI -> {url}");
         Console.WriteLine($"Config file: {configPath}");
         Console.WriteLine("Ctrl+C to stop.");
         OpenBrowser(url);
 
-        await app.RunAsync();
+        await app.WaitForShutdownAsync();
         return 0;
     }
 

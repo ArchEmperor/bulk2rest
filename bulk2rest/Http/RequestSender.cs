@@ -57,7 +57,7 @@ public sealed class RequestSender
 
         var results = new List<SendResult>(requests.Count);
         var failed = new List<RenderedRequest>();
-        var log = new StringBuilder();
+        var logPath = Path.Combine(_outDir, "results.log");
         var ok = 0;
 
         foreach (var r in requests)
@@ -85,14 +85,14 @@ public sealed class RequestSender
             }
 
             var line = $"{r.GroupKey}\t{status}";
-            log.AppendLine(line);
+            // Per request, so an interrupted run still records what was already sent.
+            File.AppendAllText(logPath, line + Environment.NewLine);
             Console.WriteLine(line);
             results.Add(new SendResult(r.GroupKey, success, status));
             if (success) ok++;
             else failed.Add(r);
         }
 
-        File.AppendAllText(Path.Combine(_outDir, "results.log"), log.ToString());
         File.WriteAllText(FailedPath, JsonSerializer.Serialize(failed, JsonOpts));
 
         Console.WriteLine($"Sent {requests.Count}: {ok} ok, {failed.Count} failed.");

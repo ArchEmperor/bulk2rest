@@ -67,14 +67,14 @@ public static class RequestBuilder
             BodyJson: body.ToJsonString(WriteOpts));
 
     private static string KeyOf(IReadOnlyDictionary<string, string> row, List<string> by)
-        => string.Join("__", by.Select(c => row.TryGetValue(c, out var v) ? v : ""));
+        => string.Join("__", by.Select(c => TemplateEngine.Column(row, c)));
 
     private static Dictionary<string, string> BuildGroupKeyMap(
         IReadOnlyDictionary<string, string> row, List<string> by)
     {
         var map = new Dictionary<string, string>(by.Count, StringComparer.OrdinalIgnoreCase);
         foreach (var c in by)
-            map[c] = row.TryGetValue(c, out var v) ? v : "";
+            map[c] = TemplateEngine.Column(row, c);
         return map;
     }
 }
